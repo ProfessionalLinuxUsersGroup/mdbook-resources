@@ -1,5 +1,5 @@
 #!/bin/bash
-# To be run from the project's root directory
+
 declare -r RESOURCES_FILE='./src/resources.md'
 declare -r SEARCH_DIR="./src"
 declare -r FILE_PATTERN="*.md"
@@ -11,7 +11,7 @@ IFS=$'\n' read -r -d '' -a FILES < <(
 )
 
 
-# TODO(fix): Handle instances of closing parens inside links (wikipedia)
+# TODO(fix): Handle instances of closing parens inside links (e.g., wikipedia)
 
 pull-links() {
     local -i COUNT_MD_LINKS=0
@@ -95,6 +95,7 @@ pull-links() {
 }
 
 format-resources() {
+
     # truncate file
     : > "$RESOURCES_FILE"
     cat <<- EOF >> "$RESOURCES_FILE"
@@ -112,13 +113,22 @@ format-resources() {
         perl -ne 'print "## Unit $1 - $2\n\n" if s/^[|]\s*(\d+)\s*[|]\s*[[](.*?)[]].*$/\1 \2/' < src/unitindex.md |
             tee -a "$RESOURCES_FILE" > /dev/null
     else
-        for i in {1..16}; do
+        local unit_count=
+        case "${GITHUB_REPOSITORY##*/}" in
+            lac|pcae) unit_count=16 ;;
+            psc)      unit_count=10 ;;
+        esac
+        [[ -z $unit_count ]] && {
+            printf >&2 "Could not determine number of units. Defaulting to 16.\n"
+            unit_count=16
+        }
+        for ((i = 1; i <= unit_count; i++)); do
             printf "## Unit %s\n\n" "$i" >> "$RESOURCES_FILE"
         done
     fi
 
     if ! grep -qi -E "^## Misc$" "$RESOURCES_FILE"; then
-        printf "## Misc\n" >> $RESOURCES_FILE
+        printf "## Misc\n\n" >> $RESOURCES_FILE
     fi
 }
 
