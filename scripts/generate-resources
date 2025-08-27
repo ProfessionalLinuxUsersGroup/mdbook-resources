@@ -1,4 +1,27 @@
 #!/bin/bash
+#===============================================================================
+#
+#          FILE:  generate-resources
+#
+#         USAGE:  ./generate-resources
+#                 To be run from the root directory of the ProLUG course mdBook
+#                 project.  
+#
+#   DESCRIPTION:  This script generates a list of all external resources used in a
+#                 ProLUG course book.
+#                 It parses all markdown files in the /src directory and extracts
+#                 any links to external resources. It then formats those resources
+#                 into $RESOURCES_FILE (/src/resources.md by default) under their
+#                 respective unit headers, determined by the name of the file they
+#                 came from.
+#
+#       OPTIONS:  There are currently no options for this script.
+#  REQUIREMENTS:  bash >= 4.0, GNU coreutils (md5sum, cut) GNU grep, GNU sed,
+#                 GNU findutils (find), perl >= 5.10 
+#        AUTHOR:  Connor W. (https://github.com/kolkhis)
+#       CREATED:  2025-03-29
+#
+#===============================================================================
 
 declare -r RESOURCES_FILE='./src/resources.md'
 declare -r SEARCH_DIR="./src"
@@ -95,7 +118,6 @@ pull-links() {
 }
 
 format-resources() {
-
     # truncate file
     : > "$RESOURCES_FILE"
     cat <<- EOF >> "$RESOURCES_FILE"
@@ -110,8 +132,8 @@ format-resources() {
 	EOF
 
     if [[ -f ./src/unitindex.md ]]; then
-        perl -ne 'print "## Unit $1 - $2\n\n" if s/^[|]\s*(\d+)\s*[|]\s*[[](.*?)[]].*$/\1 \2/' < src/unitindex.md |
-            tee -a "$RESOURCES_FILE" > /dev/null
+        perl -ne 'print "## Unit $1 - $2\n\n" if s/^[|]\s*(\d+)\s*[|]\s*[[](.*?)[]].*$/\1 \2/' \
+            < src/unitindex.md  >> "$RESOURCES_FILE"
     else
         local unit_count=
         case "${GITHUB_REPOSITORY##*/}" in
