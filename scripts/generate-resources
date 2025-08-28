@@ -140,6 +140,12 @@ format-resources() {
             lac|pcae) unit_count=16 ;;
             psc)      unit_count=10 ;;
         esac
+
+        # Gather number of units from filenames if repo is not in 'case'
+        if [[ -z $unit_count && -n "${FILES[*]}" ]]; then 
+            unit_count="$(grep -oP '(\d+)' <<< "${FILES[*]}" | uniq | wc -l)"
+        fi
+
         [[ -z $unit_count ]] && {
             printf >&2 "Could not determine number of units. Defaulting to 16.\n"
             unit_count=16
