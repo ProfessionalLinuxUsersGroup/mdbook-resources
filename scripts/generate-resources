@@ -1,55 +1,81 @@
 #!/bin/bash
-# To be run in the project's root directory
-declare RESOURCES_FILE='./src/resources.md'
-declare SEARCH_DIR="./src"
-declare FILE_PATTERN="*.md"
+#===============================================================================
+#
+#          FILE:  generate-resources
+#
+#         USAGE:  ./generate-resources
+#                 To be run from the root directory of the ProLUG course mdBook
+#                 project.  
+#
+#   DESCRIPTION:  This script generates a list of all external resources used in a
+#                 ProLUG course book.
+#                 It parses all markdown files in the /src directory and extracts
+#                 any links to external resources. It then formats those resources
+#                 into $RESOURCES_FILE (/src/resources.md by default) under their
+#                 respective unit headers, determined by the name of the file they
+#                 came from.
+#
+#       OPTIONS:  There are currently no options for this script.
+#  REQUIREMENTS:  bash >= 4.0, GNU coreutils (md5sum, cut) GNU grep, GNU sed,
+#                 GNU findutils (find), perl >= 5.10 
+#        AUTHOR:  Connor W. (https://github.com/kolkhis)
+#       CREATED:  2025-03-29
+#
+#===============================================================================
+
+declare -r RESOURCES_FILE='./src/resources.md'
+declare -r SEARCH_DIR="./src"
+declare -r FILE_PATTERN="*.md"
 declare -A ADDED_LINKS
 
 declare -a FILES
-IFS=$'\n' read -r -d '' -a FILES < <(find "$SEARCH_DIR" -maxdepth 1 -mindepth 1 -name "$FILE_PATTERN")
+IFS=$'\n' read -r -d '' -a FILES < <(
+    find "$SEARCH_DIR" -maxdepth 1 -mindepth 1 -name "$FILE_PATTERN"
+)
 
-debug() {
-    printf "[ \033[33mDEBUG\033[0m ]: "
-    printf "%s\n" "$*"
-}
+
+# TODO(fix): Handle instances of closing parens inside links (e.g., wikipedia)
 
 pull-links() {
     local -i COUNT_MD_LINKS=0
     local -i COUNT_REG_LINKS=0
     local -i COUNT_UF_LINKS=0
-    local -i DUPLICATES
-    for FILE in "${FILES[@]}"; do
-        local UNIT=
-        [[ "$FILE" == *resources.md ]] && continue  
-        [[ "$FILE" == *unitindex.md ]] && continue  
+    local -i TOTAL_LINK_COUNT=0
+    local -i DUPLICATES=0
 
-        declare -a RESOURCES
+    for file in "${FILES[@]}"; do
+        printf "Pulling links from file: %s...\n" "$file"
+        [[ "$file" =~ (unitindex\.md|resources\.md) ]] && continue  
+        local UNIT=
+        local -a RESOURCES=()
 
         IFS=$'\n' read -r -d '' -a RESOURCES < <(
-            grep -i -E '\<https://' "$FILE" |
+            grep -i -E '\<https://' "$file" |
                 grep -v -E '(img)? ?src=|discord\.(gg|com)|user-attachments'
         )
 
-        for RESOURCE in "${RESOURCES[@]}"; do
-            local RESOURCE
+        [[ -n "${RESOURCES[*]}" ]] || continue
+
+        for resource in "${RESOURCES[@]}"; do
             local MARKDOWN_LINK=
-            [[ $FILE =~ .*u([0-9]+).*\.md ]] && UNIT="${BASH_REMATCH[1]}"
+            local LINK_HASH=
+            [[ $file =~ .*u([0-9]+).*\.md ]] && UNIT="${BASH_REMATCH[1]}"
 
             # extract markdown link from the line
-            MARKDOWN_LINK="$(printf "%s" "$RESOURCE" | perl -pe 's/.*(\[.*?\]\(.*?\)).*/\1/')" 
+            MARKDOWN_LINK="$(perl -pe 's/.*(\[.*?\]\(.*?\)).*/\1/' <<< "$resource")" 
 
             if [[ $MARKDOWN_LINK =~ .*(<.*>).* ]]; then
                 # Link is formatted as: <http://example.com>
                 MARKDOWN_LINK="${BASH_REMATCH[1]}"
-                COUNT_REG_LINKS+=1
+                (( COUNT_REG_LINKS++ ))
             elif [[ $MARKDOWN_LINK =~ .*[^[\<\(](https://[^ \)]+).* ]]; then
                 # Link is unformatted: http://example.com
                 MARKDOWN_LINK="${BASH_REMATCH[1]}"
-                COUNT_UF_LINKS+=1
+                (( COUNT_UF_LINKS++ ))
                 continue
             else
                 # Link is formatted as: [Link](http://example.com)
-                COUNT_MD_LINKS+=1
+                (( COUNT_MD_LINKS++ ))
             fi
             [[ -z $MARKDOWN_LINK ]] && continue
 
@@ -59,8 +85,7 @@ pull-links() {
             #   - Bash can't parse markdown links as associative array keys
             #   - use md5sum hashes
             LINK_HASH=$(
-                printf "%s" "${MARKDOWN_LINK,,}" |
-                    sed -E 's/\/([>\)])?$/\1/' |
+                sed -E 's/\/([>\)])?$/\1/' <<< "${MARKDOWN_LINK,,}" |
                     md5sum |
                     cut -d ' ' -f1
             )
@@ -70,7 +95,6 @@ pull-links() {
                 [[ -z $UNIT ]] && sed -i "/^## Misc$/a- $MARKDOWN_LINK" "$RESOURCES_FILE"
                 ADDED_LINKS["$LINK_HASH"]=1
             else
-                debug "Duplicate link found, skipping: ${MARKDOWN_LINK}"
                 (( DUPLICATES++ ))
             fi
 
@@ -80,6 +104,7 @@ pull-links() {
 
     TOTAL_LINK_COUNT=$(( COUNT_MD_LINKS + COUNT_UF_LINKS + COUNT_REG_LINKS ))
     cat <<- EOF
+
 	REPORT:
 	- Markdown Links        $COUNT_MD_LINKS
 	- Regular Links         $COUNT_REG_LINKS
@@ -107,18 +132,32 @@ format-resources() {
 	EOF
 
     if [[ -f ./src/unitindex.md ]]; then
-        perl -ne 'print "## Unit $1 - $2\n\n" if s/^[|]\s*(\d+)\s*[|]\s*[[](.*?)[]].*$/\1 \2/' < src/unitindex.md |
-            tee -a "$RESOURCES_FILE" > /dev/null
+        perl -ne 'print "## Unit $1 - $2\n\n" if s/^[|]\s*(\d+)\s*[|]\s*[[](.*?)[]].*$/\1 \2/' \
+            < src/unitindex.md  >> "$RESOURCES_FILE"
     else
-        for i in {1..16}; do
+        local unit_count=
+        case "${GITHUB_REPOSITORY##*/}" in
+            lac|pcae) unit_count=16 ;;
+            psc)      unit_count=10 ;;
+        esac
+
+        # Gather number of units from filenames if repo is not in 'case'
+        if [[ -z $unit_count && -n "${FILES[*]}" ]]; then 
+            unit_count="$(grep -oP '(\d+)' <<< "${FILES[*]}" | uniq | wc -l)"
+        fi
+
+        [[ -z $unit_count ]] && {
+            printf >&2 "Could not determine number of units. Defaulting to 16.\n"
+            unit_count=16
+        }
+        for ((i = 1; i <= unit_count; i++)); do
             printf "## Unit %s\n\n" "$i" >> "$RESOURCES_FILE"
         done
     fi
 
     if ! grep -qi -E "^## Misc$" "$RESOURCES_FILE"; then
-        printf "## Misc\n" >> $RESOURCES_FILE
+        printf "## Misc\n\n" >> $RESOURCES_FILE
     fi
-
 }
 
 format-resources
